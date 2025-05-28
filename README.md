@@ -69,6 +69,27 @@ SAXPY (recall your results from saxpy on Program 5 from Assignment 1)?
 **Question 2.** Compare and explain the difference between the results
 provided by two sets of timers (timing only the kernel execution vs. timing the entire process of moving data to the GPU and back in addition to the kernel execution). Are the bandwidth values observed _roughly_ consistent with the reported bandwidths available to the different components of the machine? (You should use the web to track down the memory bandwidth of an NVIDIA T4 GPU. Hint: <https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/tesla-t4/t4-tensor-core-datasheet-951643.pdf>. The expected bandwidth of memory bus of AWS is 5.3 GB/s, which does not match that of a 16-lane [PCIe 3.0](https://en.wikipedia.org/wiki/PCI_Express). Several factors prevent peak bandwidth, including CPU motherboard chipset performance and whether or not the host CPU memory used as the source of the transfer is “pinned” — the latter allows the GPU to directly access memory without going through virtual memory address translation. If you are interested, you can find more info here: <https://kth.instructure.com/courses/12406/pages/optimizing-host-device-data-communication-i-pinned-host-memory>)
 
+```
+---------------------------------------------------------
+Found 2 CUDA devices
+Device 0: NVIDIA GeForce RTX 4090
+   SMs:        128
+   Global mem: 24208 MB
+   CUDA Cap:   8.9
+Device 1: NVIDIA GeForce RTX 4090
+   SMs:        128
+   Global mem: 24210 MB
+   CUDA Cap:   8.9
+---------------------------------------------------------
+Running 3 timing tests:
+CUDA kernel execution time: 1.358 ms
+Effective BW by CUDA saxpy: 98.023 ms           [11.401 GB/s]
+CUDA kernel execution time: 1.340 ms
+Effective BW by CUDA saxpy: 110.749 ms          [10.091 GB/s]
+CUDA kernel execution time: 1.336 ms
+Effective BW by CUDA saxpy: 110.502 ms          [10.114 GB/s]
+````
+
 ## Part 2: CUDA Warm-Up 2: Parallel Prefix-Sum (10 pts)
 
 Now that you're familiar with the basic structure and layout of CUDA programs, as a second exercise you are asked to come up with parallel implementation of the function `find_repeats` which, given a list of integers `A`, returns a list of all indices `i` for which `A[i] == A[i+1]`.
