@@ -27,6 +27,37 @@ static inline int nextPow2(int n) {
     return n;
 }
 
+
+
+
+__global__ void upsweep_kernel(int* output, int N, int two_d) {
+    // Compute the global thread index
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int two_dplus1 = 2 * two_d;
+    int i = index * two_dplus1;
+    output[i + two_dplus1 - 1] += output[i + two_d - 1];
+
+}
+
+__global__ void downsweep_kernel(int* output, int N, int two_d) {
+    // Compute the global thread index
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int two_dplus1 = 2 * two_d;
+    int i = index * two_dplus1;
+
+    int t = output[i + two_d - 1];
+    output[i + two_d - 1] = output[i + two_dplus1 - 1];
+    output[i + two_dplus1 - 1] += t;
+
+}
+
+__global__ void set_zero_kernel(int* output, int start_index, int len) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index < len) {
+        output[start_index + index] = 0;
+    }
+}
+
 // exclusive_scan --
 //
 // Implementation of an exclusive scan on global memory array `input`,
@@ -53,6 +84,72 @@ void exclusive_scan(int* input, int N, int* result)
     // on the CPU.  Your implementation will need to make multiple calls
     // to CUDA kernel functions (that you must write) to implement the
     // scan.
+
+    int rounded_length = nextPow2(N);
+    int padding = rounded_length - N;
+    if( padding != 0){
+        int blocks_ = (padding + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+        set_zero_kernel<<<blocks_, THREADS_PER_BLOCK>>>(result, N, padding);
+        N = rounded_length;
+    }
+
+    int two_d = 1;
+    while (two_d <= N/2) {
+        int two_dplus1 = 2 * two_d;
+        int sum = N / two_dplus1;
+        if(sum >= THREADS_PER_BLOCK) {
+            int blockCount = sum /THREADS_PER_BLOCK;
+            upsweep_kernel<<<blockCount, THREADS_PER_BLOCK>>>(result, N, two_d);
+        }
+        else{
+            upsweep_kernel<<<1, sum>>>(result, N, two_d);
+        }
+        
+        two_d *= 2;
+    }
+
+
+    // upsweep phase
+    // for (int two_d = 1; two_d <= N/2; two_d*=2) {
+    //     int two_dplus1 = 2*two_d;
+    //     // parallel_for (int i = 0; i < N; i += two_dplus1) {
+    //     //     output[i+two_dplus1-1] += output[i+two_d-1];
+    //     // }
+    //     int blockCount = (((N + two_dplus1 - 1) / two_dplus1) + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+        
+    //     upsweep_kernel<<<blockCount, THREADS_PER_BLOCK>>>(result, N, two_d);
+    // }
+
+    set_zero_kernel<<<1, 1>>>(result, N-1,1);
+
+    // downsweep phase
+    // for (int two_d = N/2; two_d >= 1; two_d /= 2) {
+    //     int two_dplus1 = 2*two_d;
+    //     // parallel_for (int i = 0; i < N; i += two_dplus1) {
+    //     //     int t = output[i+two_d-1];
+    //     //     output[i+two_d-1] = output[i+two_dplus1-1];
+    //     //     output[i+two_dplus1-1] += t;
+    //     // }
+    //     int blockCount = (((N + two_dplus1 - 1) / two_dplus1) + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+    //     downsweep_kernel<<<blockCount, THREADS_PER_BLOCK>>>(result, N, two_d);
+    // }
+
+    two_d = N / 2;
+    while (two_d >= 1) {
+        int two_dplus1 = 2 * two_d;
+        int sum = N / two_dplus1;
+        if(sum >= THREADS_PER_BLOCK) {
+            int blockCount = sum /THREADS_PER_BLOCK;
+            downsweep_kernel<<<blockCount, THREADS_PER_BLOCK>>>(result, N, two_d);
+        }
+        else{
+            downsweep_kernel<<<1, sum>>>(result, N, two_d);
+        }
+        
+        two_d /= 2;
+    }
+
+
 
 
 }
@@ -160,6 +257,16 @@ int find_repeats(int* device_input, int length, int* device_output) {
     // exclusive_scan function with them. However, your implementation
     // must ensure that the results of find_repeats are correct given
     // the actual array length.
+
+    int rounded_length = nextPow2(length);
+
+    int* device_scan_result;
+    cudaMalloc((void **)&device_scan_result, sizeof(int) * rounded_length);
+    cudaMemcpy(device_scan_result, device_input, sizeof(int) * length, cudaMemcpyDeviceToDevice);
+    double scan_duration = cudaScan(device_input, device_input + length, device_scan_result);
+    
+
+
 
     return 0; 
 }
