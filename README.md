@@ -89,7 +89,22 @@ Effective BW by CUDA saxpy: 110.749 ms          [10.091 GB/s]
 CUDA kernel execution time: 1.336 ms
 Effective BW by CUDA saxpy: 110.502 ms          [10.114 GB/s]
 ````
-
+```
+---------------------------------------------------------
+Found 1 CUDA devices
+Device 0: NVIDIA GeForce RTX 3060 Laptop GPU
+   SMs:        30
+   Global mem: 6144 MB
+   CUDA Cap:   8.6
+---------------------------------------------------------
+Running 3 timing tests:
+CUDA kernel execution time: 7.472 ms
+Effective BW by CUDA saxpy: 187.855 ms          [5.949 GB/s]
+CUDA kernel execution time: 3.973 ms
+Effective BW by CUDA saxpy: 170.681 ms          [6.548 GB/s]
+CUDA kernel execution time: 3.977 ms
+Effective BW by CUDA saxpy: 145.460 ms          [7.683 GB/s]
+```
 ## Part 2: CUDA Warm-Up 2: Parallel Prefix-Sum (10 pts)
 
 Now that you're familiar with the basic structure and layout of CUDA programs, as a second exercise you are asked to come up with parallel implementation of the function `find_repeats` which, given a list of integers `A`, returns a list of all indices `i` for which `A[i] == A[i+1]`.
@@ -166,12 +181,27 @@ Scan Score Table:
 -------------------------------------------------------------------------
 | Element Count   | Ref Time        | Student Time    | Score           |
 -------------------------------------------------------------------------
-| 1000000         | 0.766           | 0.143 (F)       | 0               |
-| 10000000        | 8.876           | 0.165 (F)       | 0               |
-| 20000000        | 17.537          | 0.157 (F)       | 0               |
-| 40000000        | 34.754          | 0.139 (F)       | 0               |
+| 1000000         | 1.496           | 0.617           | 1.25            |
+| 10000000        | 9.449           | 5.401           | 1.25            |
+| 20000000        | 16.608          | 10.453          | 1.25            |
+| 40000000        | 32.027          | 20.714          | 1.25            |
 -------------------------------------------------------------------------
-|                                   | Total score:    | 0/5             |
+|                                   | Total score:    | 5.0/5.0         |
+-------------------------------------------------------------------------
+```
+```
+-------------------------
+Find_repeats Score Table:
+-------------------------
+-------------------------------------------------------------------------
+| Element Count   | Ref Time        | Student Time    | Score           |
+-------------------------------------------------------------------------
+| 1000000         | 2.388           | 1.421           | 1.25            |
+| 10000000        | 16.383          | 10.825          | 1.25            |
+| 20000000        | 27.514          | 17.195          | 1.25            |
+| 40000000        | 51.743          | 30.834          | 1.25            |
+-------------------------------------------------------------------------
+|                                   | Total score:    | 5.0/5.0         |
 -------------------------------------------------------------------------
 ```
 
