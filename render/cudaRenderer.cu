@@ -692,9 +692,9 @@ __global__ void kernelRenderPixelsInOrder() {
         }
         else {
             float3 p = *(float3*)&cuConstRendererParams.position[3 * idx_circle];
-            flags[IdxInBlock] = circleInBoxConservative(p.x, p.y, cuConstRendererParams.radius[idx_circle], BoxL, BoxR, BoxT, BoxB);
+            // flags[IdxInBlock] = circleInBoxConservative(p.x, p.y, cuConstRendererParams.radius[idx_circle], BoxL, BoxR, BoxT, BoxB);
             // if (flags[IdxInBlock]) {
-            //     flags[IdxInBlock] = circleInBox(p.x, p.y, cuConstRendererParams.radius[idx_circle], BoxL, BoxR, BoxT, BoxB);
+                flags[IdxInBlock] = circleInBox(p.x, p.y, cuConstRendererParams.radius[idx_circle], BoxL, BoxR, BoxT, BoxB);
             // }
         }
         __syncthreads();
