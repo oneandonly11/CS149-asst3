@@ -14,6 +14,9 @@
 #include "sceneLoader.h"
 #include "util.h"
 
+#define BLOCK_SIZE 32
+#define SCAN_BLOCK_DIM 1024
+
 ////////////////////////////////////////////////////////////////////////////////////////
 // Putting all the cuda kernels here
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -55,6 +58,8 @@ __constant__ float  cuConstColorRamp[COLOR_MAP_SIZE][3];
 // file simpler and to seperate code that should not be modified
 #include "noiseCuda.cu_inl"
 #include "lookupColor.cu_inl"
+#include "circleBoxTest.cu_inl"
+#include "exclusiveScan.cu_inl"
 
 
 // kernelClearImageSnowflake -- (CUDA device code)
@@ -552,6 +557,9 @@ CudaRenderer::setup() {
 
     cudaMemcpyToSymbol(cuConstRendererParams, &params, sizeof(GlobalConstants));
 
+    BlockXNum = (image->width + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    BlockYNum = (image->height + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
     // also need to copy over the noise lookup tables, so we can
     // implement noise on the GPU
     int* permX;
@@ -633,39 +641,6 @@ CudaRenderer::advanceAnimation() {
     cudaDeviceSynchronize();
 }
 
-// __device__ __inline__  float4
-// shadePixelReturn(int circleIndex, float2 pixelCenter, float3 p) {
-//     float diffX = p.x - pixelCenter.x;
-//     float diffY = p.y - pixelCenter.y;
-//     float pixelDist = diffX * diffX + diffY * diffY;
-
-//     float rad = cuConstRendererParams.radius[circleIndex];
-//     float maxDist = rad * rad;
-
-//     if (pixelDist > maxDist)
-//         return make_float4(0.f, 0.f, 0.f, 0.f); // no contribution
-
-//     float3 rgb;
-//     float alpha;
-
-//     if (cuConstRendererParams.sceneName == SNOWFLAKES || cuConstRendererParams.sceneName == SNOWFLAKES_SINGLE_FRAME) {
-//         const float kCircleMaxAlpha = .5f;
-//         const float falloffScale = 4.f;
-
-//         float normPixelDist = sqrtf(pixelDist) / rad;
-//         rgb = lookupColor(normPixelDist);
-
-//         float maxAlpha = .6f + .4f * (1.f - p.z);
-//         maxAlpha = kCircleMaxAlpha * fmaxf(fminf(maxAlpha, 1.f), 0.f);
-//         alpha = maxAlpha * expf(-1.f * falloffScale * normPixelDist * normPixelDist);
-//     } else {
-//         int index3 = 3 * circleIndex;
-//         rgb = *(float3*)&(cuConstRendererParams.color[index3]);
-//         alpha = .5f;
-//     }
-
-//     return make_float4(rgb.x, rgb.y, rgb.z, alpha);
-// }
 
 
 __global__ void kernelRenderPixelsInOrder() {
@@ -675,21 +650,76 @@ __global__ void kernelRenderPixelsInOrder() {
     int pixelX = blockIdx.x * blockDim.x + threadIdx.x;
     int pixelY = blockIdx.y * blockDim.y + threadIdx.y;
 
+    int IdxInBlock = threadIdx.x + threadIdx.y * blockDim.x;
+
+    int numCircles = cuConstRendererParams.numCircles;
+
     if (pixelX >= imageWidth || pixelY >= imageHeight)
         return;
 
     float invWidth = 1.f / imageWidth;
     float invHeight = 1.f / imageHeight;
 
-    float2 pixelCenterNorm = make_float2((pixelX + 0.5f) * invWidth,
-                                         (pixelY + 0.5f) * invHeight);
+    float2 pixelCenterNorm = make_float2((static_cast<float>(pixelX) + 0.5f) * invWidth,
+                                         (static_cast<float>(pixelY) + 0.5f) * invHeight);
 
     float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (pixelY * imageWidth + pixelX)]);
 
-    for (int i = 0; i < cuConstRendererParams.numCircles; ++i) {
-        float3 p = *(float3*)&cuConstRendererParams.position[3 * i];
-        shadePixel(i, pixelCenterNorm, p, imgPtr);
+
+    int boxl = (blockIdx.x * blockDim.x);
+    int boxr = ((boxl + blockDim.x - 1 < imageWidth) ? boxl + blockDim.x : imageWidth);
+    int boxb = (blockIdx.y * blockDim.y);
+    int boxt = ((boxb + blockDim.y - 1 < imageHeight) ? boxb + blockDim.y : imageHeight);
+
+    float BoxL = boxl * invWidth;
+    float BoxR = boxr * invWidth;
+    float BoxB = boxb * invHeight;
+    float BoxT = boxt * invHeight;
+
+
+
+    __shared__ uint flags[SCAN_BLOCK_DIM];
+    __shared__ uint prefixSumOutput[SCAN_BLOCK_DIM];
+    __shared__ uint prefixSumScratch[2 * SCAN_BLOCK_DIM];
+    __shared__ uint circles[SCAN_BLOCK_DIM];
+
+
+    for (int i = 0; i < numCircles; i += SCAN_BLOCK_DIM) {
+
+        int idx_circle = IdxInBlock + i;
+        if (idx_circle >= numCircles) {
+            flags[IdxInBlock] = 0; // no circle in this block
+        }
+        else {
+            float3 p = *(float3*)&cuConstRendererParams.position[3 * idx_circle];
+            flags[IdxInBlock] = circleInBoxConservative(p.x, p.y, cuConstRendererParams.radius[idx_circle], BoxL, BoxR, BoxT, BoxB);
+            // if (flags[IdxInBlock]) {
+            //     flags[IdxInBlock] = circleInBox(p.x, p.y, cuConstRendererParams.radius[idx_circle], BoxL, BoxR, BoxT, BoxB);
+            // }
+        }
+        __syncthreads();
+
+        sharedMemExclusiveScan(IdxInBlock, flags, prefixSumOutput, prefixSumScratch, SCAN_BLOCK_DIM);
+
+        __syncthreads();
+        int numCirclesInBlock = prefixSumOutput[SCAN_BLOCK_DIM - 1] + flags[SCAN_BLOCK_DIM - 1];
+        if (flags[IdxInBlock]) {
+            circles[prefixSumOutput[IdxInBlock]] = idx_circle; // store circle index in shared memory
+        } 
+
+        __syncthreads();
+
+        for (int j = 0; j < numCirclesInBlock; j++) {
+            int circleIndex = circles[j];
+            if (circleIndex >= numCircles) {
+                continue; // no circle in this block
+            }
+
+            float3 p = *(float3*)&cuConstRendererParams.position[3 * circleIndex];
+            shadePixel(circleIndex, pixelCenterNorm, p, imgPtr);
+        }
     }
+
 }
 
 void
@@ -703,9 +733,8 @@ CudaRenderer::render() {
     // cudaDeviceSynchronize();
 
 
-    dim3 blockDim(16, 16);
-    dim3 gridDim((image->width + blockDim.x - 1) / blockDim.x,
-                 (image->height + blockDim.y - 1) / blockDim.y);
+    dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
+    dim3 gridDim(BlockXNum,BlockYNum);
 
     kernelRenderPixelsInOrder<<<gridDim, blockDim>>>();
     cudaDeviceSynchronize();

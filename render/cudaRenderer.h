@@ -27,6 +27,10 @@ private:
     float* cudaDeviceRadius;
     float* cudaDeviceImageData;
 
+    int* cudaDeviceCircleFlags; 
+    int BlockXNum;
+    int BlockYNum;
+
 public:
 
     CudaRenderer();
